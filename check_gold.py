@@ -23,7 +23,6 @@ def send_telegram(message, bot_token, chat_ids):
         response = requests.post(url, json={"chat_id": chat_id, "text": message})
         if not response.ok:
             print(f"Telegram Fehler für {chat_id}: {response.status_code} – {response.text}")
-        response.raise_for_status()
 
 
 def check_metal(name, ticker_symbol, threshold_pct, bot_token, chat_ids):
