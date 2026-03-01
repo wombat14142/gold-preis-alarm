@@ -11,7 +11,9 @@ def get_gold_prices():
 
 def send_telegram(message, bot_token, chat_id):
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    response = requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"})
+    response = requests.post(url, json={"chat_id": chat_id, "text": message})
+    if not response.ok:
+        print(f"Telegram Fehler: {response.status_code} – {response.text}")
     response.raise_for_status()
 
 
