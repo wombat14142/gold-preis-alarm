@@ -33,7 +33,18 @@ def main():
     print(f"Gold aktuell:     ${price_now:.2f}")
     print(f"Veränderung:      {change_pct:+.2f}%")
 
-    if change_pct <= -2.0:
+    force_test = os.environ.get("FORCE_TEST", "").lower() == "true"
+
+    if force_test:
+        message = (
+            f"<b>Telegram-Test erfolgreich!</b>\n\n"
+            f"Aktueller Goldpreis: <b>${price_now:.2f}</b>\n"
+            f"Vor 7 Tagen: ${price_7d_ago:.2f}\n"
+            f"Veränderung: {change_pct:+.2f}%"
+        )
+        send_telegram(message, bot_token, chat_id)
+        print("Testnachricht gesendet!")
+    elif change_pct <= -2.0:
         message = (
             f"<b>Gold Alarm!</b>\n\n"
             f"Der Goldpreis ist in den letzten 7 Tagen um <b>{change_pct:.1f}%</b> gefallen.\n\n"

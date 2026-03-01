@@ -3,7 +3,12 @@ name: Gold Price Check
 on:
   schedule:
     - cron: '0 * * * *'  # Jede Stunde
-  workflow_dispatch:       # Manuell auslösbar (zum Testen)
+  workflow_dispatch:
+    inputs:
+      test:
+        description: 'Testnachricht senden?'
+        type: boolean
+        default: false
 
 jobs:
   check:
@@ -26,3 +31,4 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FORCE_TEST: ${{ inputs.test }}
