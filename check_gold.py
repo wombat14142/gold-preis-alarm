@@ -3,27 +3,30 @@ import yfinance as yf
 import requests
 
 METALS = [
-    ("Gold",   "XAUUSD=X", "XAUEUR=X", 2.0),
-    ("Silber", "XAGUSD=X", "XAGEUR=X", 5.0),
+    ("Gold",   "GC=F", 2.0),
+    ("Silber", "SI=F", 5.0),
 ]
 
+EUR_USD_TICKER = "EURUSD=X"
 
-def get_price_change(usd_ticker, eur_ticker):
-    def fetch(symbol):
-        hist = yf.Ticker(symbol).history(period="5d", interval="1d")
-        return hist["Close"].dropna()
 
-    usd_prices = fetch(usd_ticker)
-    eur_prices = fetch(eur_ticker)
+def fetch_last_two(symbol):
+    hist = yf.Ticker(symbol).history(period="5d", interval="1d")
+    prices = hist["Close"].dropna()
+    if len(prices) < 2:
+        return None, None
+    return float(prices.iloc[-2]), float(prices.iloc[-1])
 
-    if len(usd_prices) < 2:
+
+def get_price_change(usd_ticker):
+    usd_yesterday, usd_now = fetch_last_two(usd_ticker)
+    if usd_yesterday is None:
         return None, None, None, None, None
 
-    usd_yesterday, usd_now = usd_prices.iloc[-2], usd_prices.iloc[-1]
+    eurusd_yesterday, eurusd_now = fetch_last_two(EUR_USD_TICKER)
     change_pct = (usd_now - usd_yesterday) / usd_yesterday * 100
-
-    eur_yesterday = eur_prices.iloc[-2] if len(eur_prices) >= 2 else None
-    eur_now = eur_prices.iloc[-1] if not eur_prices.empty else None
+    eur_now = usd_now / eurusd_now if eurusd_now else None
+    eur_yesterday = usd_yesterday / eurusd_yesterday if eurusd_yesterday else None
 
     return usd_yesterday, usd_now, change_pct, eur_yesterday, eur_now
 
@@ -36,11 +39,24 @@ def send_telegram(message, bot_token, chat_ids):
             print(f"Telegram Fehler für {chat_id}: {response.status_code} – {response.text}")
 
 
-def check_metal(name, usd_ticker, eur_ticker, threshold_pct, bot_token, chat_ids):
-    usd_yesterday, usd_now, change_pct, eur_yesterday, eur_now = get_price_change(usd_ticker, eur_ticker)
+def send_error(message, bot_token, first_chat_id):
+    print(f"FEHLER: {message}")
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": first_chat_id, "text": f"⚠️ Fehler im Gold-Alarm:\n{message}"})
+    except Exception as e:
+        print(f"Fehler beim Senden der Fehlermeldung: {e}")
+
+
+def check_metal(name, usd_ticker, threshold_pct, bot_token, chat_ids):
+    try:
+        usd_yesterday, usd_now, change_pct, eur_yesterday, eur_now = get_price_change(usd_ticker)
+    except Exception as e:
+        send_error(f"{name}: Datenabruf fehlgeschlagen ({usd_ticker}): {e}", bot_token, chat_ids[0])
+        return
 
     if usd_yesterday is None:
-        print(f"Nicht genug Daten für {name}.")
+        send_error(f"{name}: Nicht genug Daten von {usd_ticker}.", bot_token, chat_ids[0])
         return
 
     eur_now_str = f" / €{eur_now:.2f}" if eur_now else ""
@@ -65,15 +81,18 @@ def check_metal(name, usd_ticker, eur_ticker, threshold_pct, bot_token, chat_ids
 
 def send_test_message(bot_token, chat_ids):
     lines = ["Test erfolgreich!\n"]
-    for name, usd_ticker, eur_ticker, threshold_pct in METALS:
-        usd_yesterday, usd_now, change_pct, _, eur_now = get_price_change(usd_ticker, eur_ticker)
-        if usd_yesterday is None:
-            lines.append(f"{name}: Keine Daten verfügbar")
-        else:
-            eur_now_str = f" / €{eur_now:.2f}" if eur_now else ""
-            print(f"{name} aktuell: ${usd_now:.2f}{eur_now_str}")
-            print(f"Veränderung:     {change_pct:+.2f}%")
-            lines.append(f"{name}: ${usd_now:.2f}{eur_now_str} ({change_pct:+.2f}% seit gestern, Alarm ab -{threshold_pct}%)")
+    for name, usd_ticker, threshold_pct in METALS:
+        try:
+            usd_yesterday, usd_now, change_pct, _, eur_now = get_price_change(usd_ticker)
+            if usd_yesterday is None:
+                lines.append(f"{name}: Keine Daten verfügbar ({usd_ticker})")
+            else:
+                eur_now_str = f" / €{eur_now:.2f}" if eur_now else ""
+                print(f"{name} aktuell: ${usd_now:.2f}{eur_now_str}")
+                print(f"Veränderung:     {change_pct:+.2f}%")
+                lines.append(f"{name}: ${usd_now:.2f}{eur_now_str} ({change_pct:+.2f}% seit gestern, Alarm ab -{threshold_pct}%)")
+        except Exception as e:
+            lines.append(f"{name}: Fehler – {e}")
     send_telegram("\n".join(lines), bot_token, chat_ids)
     print("Testnachricht gesendet!")
 
@@ -86,11 +105,15 @@ def main():
     if chat_id_2:
         chat_ids.append(chat_id_2)
 
-    if os.environ.get("FORCE_TEST", "").lower() == "true":
-        send_test_message(bot_token, chat_ids)
-    else:
-        for name, usd_ticker, eur_ticker, threshold_pct in METALS:
-            check_metal(name, usd_ticker, eur_ticker, threshold_pct, bot_token, chat_ids)
+    try:
+        if os.environ.get("FORCE_TEST", "").lower() == "true":
+            send_test_message(bot_token, chat_ids)
+        else:
+            for name, usd_ticker, threshold_pct in METALS:
+                check_metal(name, usd_ticker, threshold_pct, bot_token, chat_ids)
+    except Exception as e:
+        send_error(f"Unerwarteter Fehler: {e}", bot_token, chat_ids[0])
+        raise
 
 
 if __name__ == "__main__":
