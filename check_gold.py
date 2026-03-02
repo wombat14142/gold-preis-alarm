@@ -3,18 +3,29 @@ import yfinance as yf
 import requests
 
 METALS = [
-    ("Gold",   "GC=F", 2.0),
-    ("Silber", "SI=F", 5.0),
+    ("Gold",   "XAUUSD=X", "XAUEUR=X", 2.0),
+    ("Silber", "XAGUSD=X", "XAGEUR=X", 5.0),
 ]
 
 
-def get_price_change(ticker_symbol):
-    ticker = yf.Ticker(ticker_symbol)
-    hist = ticker.history(period="5d", interval="1d")
-    prices = hist["Close"].dropna()
-    if len(prices) < 2:
-        return None, None, None
-    return prices.iloc[-2], prices.iloc[-1], (prices.iloc[-1] - prices.iloc[-2]) / prices.iloc[-2] * 100
+def get_price_change(usd_ticker, eur_ticker):
+    def fetch(symbol):
+        hist = yf.Ticker(symbol).history(period="5d", interval="1d")
+        return hist["Close"].dropna()
+
+    usd_prices = fetch(usd_ticker)
+    eur_prices = fetch(eur_ticker)
+
+    if len(usd_prices) < 2:
+        return None, None, None, None, None
+
+    usd_yesterday, usd_now = usd_prices.iloc[-2], usd_prices.iloc[-1]
+    change_pct = (usd_now - usd_yesterday) / usd_yesterday * 100
+
+    eur_yesterday = eur_prices.iloc[-2] if len(eur_prices) >= 2 else None
+    eur_now = eur_prices.iloc[-1] if not eur_prices.empty else None
+
+    return usd_yesterday, usd_now, change_pct, eur_yesterday, eur_now
 
 
 def send_telegram(message, bot_token, chat_ids):
@@ -25,23 +36,26 @@ def send_telegram(message, bot_token, chat_ids):
             print(f"Telegram Fehler für {chat_id}: {response.status_code} – {response.text}")
 
 
-def check_metal(name, ticker_symbol, threshold_pct, bot_token, chat_ids):
-    price_yesterday, price_now, change_pct = get_price_change(ticker_symbol)
+def check_metal(name, usd_ticker, eur_ticker, threshold_pct, bot_token, chat_ids):
+    usd_yesterday, usd_now, change_pct, eur_yesterday, eur_now = get_price_change(usd_ticker, eur_ticker)
 
-    if price_yesterday is None:
+    if usd_yesterday is None:
         print(f"Nicht genug Daten für {name}.")
         return
 
-    print(f"{name} gestern:  ${price_yesterday:.2f}")
-    print(f"{name} aktuell: ${price_now:.2f}")
+    eur_now_str = f" / €{eur_now:.2f}" if eur_now else ""
+    eur_yesterday_str = f" / €{eur_yesterday:.2f}" if eur_yesterday else ""
+
+    print(f"{name} gestern:  ${usd_yesterday:.2f}{eur_yesterday_str}")
+    print(f"{name} aktuell: ${usd_now:.2f}{eur_now_str}")
     print(f"Veränderung:     {change_pct:+.2f}%")
 
     if change_pct <= -threshold_pct:
         message = (
             f"{name} Alarm!\n\n"
             f"Der {name}preis ist seit gestern um {change_pct:.1f}% gefallen.\n\n"
-            f"Aktuell:  ${price_now:.2f}\n"
-            f"Gestern: ${price_yesterday:.2f}"
+            f"Aktuell:  ${usd_now:.2f}{eur_now_str}\n"
+            f"Gestern: ${usd_yesterday:.2f}{eur_yesterday_str}"
         )
         send_telegram(message, bot_token, chat_ids)
         print(f"{name} Alarm gesendet!")
@@ -51,15 +65,15 @@ def check_metal(name, ticker_symbol, threshold_pct, bot_token, chat_ids):
 
 def send_test_message(bot_token, chat_ids):
     lines = ["Test erfolgreich!\n"]
-    for name, ticker_symbol, threshold_pct in METALS:
-        price_yesterday, price_now, change_pct = get_price_change(ticker_symbol)
-        if price_yesterday is None:
+    for name, usd_ticker, eur_ticker, threshold_pct in METALS:
+        usd_yesterday, usd_now, change_pct, _, eur_now = get_price_change(usd_ticker, eur_ticker)
+        if usd_yesterday is None:
             lines.append(f"{name}: Keine Daten verfügbar")
         else:
-            print(f"{name} gestern:  ${price_yesterday:.2f}")
-            print(f"{name} aktuell: ${price_now:.2f}")
+            eur_now_str = f" / €{eur_now:.2f}" if eur_now else ""
+            print(f"{name} aktuell: ${usd_now:.2f}{eur_now_str}")
             print(f"Veränderung:     {change_pct:+.2f}%")
-            lines.append(f"{name}: ${price_now:.2f} ({change_pct:+.2f}% seit gestern, Alarm ab -{threshold_pct}%)")
+            lines.append(f"{name}: ${usd_now:.2f}{eur_now_str} ({change_pct:+.2f}% seit gestern, Alarm ab -{threshold_pct}%)")
     send_telegram("\n".join(lines), bot_token, chat_ids)
     print("Testnachricht gesendet!")
 
@@ -75,8 +89,8 @@ def main():
     if os.environ.get("FORCE_TEST", "").lower() == "true":
         send_test_message(bot_token, chat_ids)
     else:
-        for name, ticker_symbol, threshold_pct in METALS:
-            check_metal(name, ticker_symbol, threshold_pct, bot_token, chat_ids)
+        for name, usd_ticker, eur_ticker, threshold_pct in METALS:
+            check_metal(name, usd_ticker, eur_ticker, threshold_pct, bot_token, chat_ids)
 
 
 if __name__ == "__main__":
