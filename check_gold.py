@@ -1,6 +1,8 @@
 import os
+import json
 import yfinance as yf
 import requests
+from datetime import date
 
 METALS = [
     ("Gold",   "GC=F", 2.0),
@@ -8,6 +10,20 @@ METALS = [
 ]
 
 EUR_USD_TICKER = "EURUSD=X"
+STATE_FILE = "alert_state.json"
+
+
+def load_state():
+    try:
+        with open(STATE_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
 
 
 def fetch_last_two(symbol):
@@ -48,7 +64,7 @@ def send_error(message, bot_token, first_chat_id):
         print(f"Fehler beim Senden der Fehlermeldung: {e}")
 
 
-def check_metal(name, usd_ticker, threshold_pct, bot_token, chat_ids):
+def check_metal(name, usd_ticker, threshold_pct, bot_token, chat_ids, state):
     try:
         usd_yesterday, usd_now, change_pct, eur_yesterday, eur_now = get_price_change(usd_ticker)
     except Exception as e:
@@ -67,6 +83,10 @@ def check_metal(name, usd_ticker, threshold_pct, bot_token, chat_ids):
     print(f"Veränderung:     {change_pct:+.2f}%")
 
     if change_pct <= -threshold_pct:
+        today = str(date.today())
+        if state.get(name) == today:
+            print(f"{name}: Heute bereits gewarnt, kein erneuter Alarm.")
+            return
         message = (
             f"{name} Alarm!\n\n"
             f"Der {name}preis ist seit gestern um {change_pct:.1f}% gefallen.\n\n"
@@ -74,6 +94,7 @@ def check_metal(name, usd_ticker, threshold_pct, bot_token, chat_ids):
             f"Gestern: ${usd_yesterday:.2f}{eur_yesterday_str}"
         )
         send_telegram(message, bot_token, chat_ids)
+        state[name] = today
         print(f"{name} Alarm gesendet!")
     else:
         print(f"Kein {name}-Alarm nötig.")
@@ -109,8 +130,10 @@ def main():
         if os.environ.get("FORCE_TEST", "").lower() == "true":
             send_test_message(bot_token, chat_ids)
         else:
+            state = load_state()
             for name, usd_ticker, threshold_pct in METALS:
-                check_metal(name, usd_ticker, threshold_pct, bot_token, chat_ids)
+                check_metal(name, usd_ticker, threshold_pct, bot_token, chat_ids, state)
+            save_state(state)
     except Exception as e:
         send_error(f"Unerwarteter Fehler: {e}", bot_token, chat_ids[0])
         raise

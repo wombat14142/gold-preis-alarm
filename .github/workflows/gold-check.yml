@@ -18,6 +18,14 @@ jobs:
       - name: Code auschecken
         uses: actions/checkout@v4
 
+      - name: Alert-Status laden
+        uses: actions/cache/restore@v4
+        with:
+          path: alert_state.json
+          key: alert-state-${{ github.run_id }}
+          restore-keys: |
+            alert-state-
+
       - name: Python einrichten
         uses: actions/setup-python@v5
         with:
@@ -33,3 +41,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TLEGRAM_CHAT_ID }}
           TELEGRAM_CHAT_ID_2: ${{ secrets.TLEGRAM_CHAT_ID_2 }}
           FORCE_TEST: ${{ inputs.test }}
+
+      - name: Alert-Status speichern
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: alert_state.json
+          key: alert-state-${{ github.run_id }}
