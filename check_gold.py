@@ -5,8 +5,8 @@ import requests
 from datetime import date
 
 METALS = [
-    ("Gold",   "GC=F", 2.0),
-    ("Silber", "SI=F", 5.0),
+    ("Gold",   "GC=F", 1.0),
+    ("Silber", "SI=F", 2.5),
 ]
 
 EUR_USD_TICKER = "EURUSD=X"
